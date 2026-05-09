@@ -1,0 +1,16 @@
+{
+  "tickers": [
+    "🍽️ Fresh meals, happy employees!",
+    "🥗 Healthy food = productive work!",
+    "🔥 Live canteen dashboard active",
+    "🍛 Quality food served with care",
+    "⚡ Real-time canteen monitoring system",
+    "🥘 स्वादिष्ट भोजन, बेहतर ऊर्जा",
+    "🍔 Eat smart, work smarter!",
+    "📊 Live transactions flowing smoothly",
+    "🍱 Hygiene & quality is our priority"
+  ],
+  "overtimeLimit": 100,
+  "tickerSpeed": 60,
+  "tickerColor": "#38bdf8"
+}
