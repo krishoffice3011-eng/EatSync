@@ -905,6 +905,25 @@ button { font-family: 'Outfit'; font-weight: 950; text-transform: uppercase; let
   box-shadow: 0 0 8px #ef4444;
 }
 
+/* ==========================================
+   🚀 ULTRAVIEWER / RDP ANTI-FLICKER FIX
+   ========================================== */
+.section-header-premium,
+.detail-header-v2,
+.global-breadcrumb,
+.header-left-group,
+.header-right-actions {
+    /* Force hardware acceleration strictly on the element to stop remote-desktop tearing */
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-perspective: 1000px;
+    perspective: 1000px;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
 /* Empty States */
 .no-canteens-premium {
   display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 40px; background: rgba(255, 255, 255, 0.75); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(30px) saturate(200%); border-radius: 48px; border: 1px solid rgba(255, 255, 255, 0.5); text-align: center; transition: all var(--trans-base); box-shadow: 0 40px 100px -20px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(225, 29, 72, 0.05); margin-top: 20px; position: relative; overflow: hidden; min-height: 520px; animation: unauthorizedReveal 1s cubic-bezier(0.16, 1, 0.3, 1);

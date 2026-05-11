@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const sql = require("mssql"); // Using pure high-speed driver
+const sql = require("mssql"); 
 const jwt = require("jsonwebtoken"); 
 const config = require("./config");
 const adminRoutes = require("./admin"); 
@@ -35,40 +35,46 @@ const authenticateJWT = (req, res, next) => {
 // 🌐 WEB SOCKET SERVER SETUP
 // ==========================================
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] } });
+const io = new Server(server, { 
+    cors: { origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] },
+    transports: ['polling', 'websocket'] 
+});
 
 const dbConfig = config.dbConfig;
 const PORT = config.PORT;
 
-// 🟢 FIX: Secure Connection Pool Error Handling
 const appPool = new sql.ConnectionPool(dbConfig);
 const poolConnect = appPool.connect().then(() => {
-    console.log(`✅ Global DB Connection Pool Established (High-Speed TDS Protocol)`);
-    startSmartPolling();
+    console.log(`✅ Global DB Connection Pool Established`);
+    startSmartPolling(); 
     return appPool;
 }).catch(err => {
-    console.error("\n=======================================================");
-    console.error("🚨 CRITICAL: DATABASE CONNECTION REJECTED 🚨");
-    console.error("=======================================================");
-    console.error("SQL Error Message:", err.message);
-    console.error("\nFixing TCP/IP in SQL Server:");
-    console.error("1. Open 'SQL Server Configuration Manager' in Windows.");
-    console.error("2. Go to 'SQL Server Network Configuration' -> 'Protocols'.");
-    console.error("3. Right-click 'TCP/IP' and select 'Enable'.");
-    console.error("4. Restart the SQL Server Service (Under SQL Server Services).");
-    console.error("=======================================================\n");
-    process.exit(1); // Halts the server cleanly instead of throwing "undefined" crashes
+    console.error("🚨 CRITICAL: DATABASE CONNECTION REJECTED 🚨", err.message);
+    process.exit(1); 
 });
 
 const handleSQLError = (err, res = null, context = "Database Query") => {
-    const msg = err.message || "";
-    console.error(`\x1b[31m\n❌ [DB ERROR] \x1b[33m(${context}):\x1b[0m`, msg, '\n');
+    console.error(`\x1b[31m\n❌ [DB ERROR] \x1b[33m(${context}):\x1b[0m`, err.message, '\n');
     if (res && !res.headersSent) res.status(500).json({ success: false, error: "Internal DB error." });
 };
 
 // ==========================================
-// 🛠️ SAFE UTILITY FUNCTIONS
+// 🛠️ TIMEZONE & UTILITY FUNCTIONS
 // ==========================================
+const getISTDateStr = () => {
+    const d = new Date();
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const ist = new Date(utc + (3600000 * 5.5));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`;
+};
+
+const getISTTimeMins = () => {
+    const d = new Date();
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const ist = new Date(utc + (3600000 * 5.5));
+    return (ist.getHours() * 60) + ist.getMinutes();
+};
+
 const normalizeEmpCode = (code) => {
     let c = String(code || "").trim().toUpperCase();
     c = c.replace(/^0+/, ''); 
@@ -80,11 +86,6 @@ const normalizeIO = (io) => {
     if (['I', 'IN', 'P10', '1', 'TRUE'].includes(s)) return 'IN';
     if (['O', 'OUT', 'P20', '0', 'FALSE'].includes(s)) return 'OUT';
     return null; 
-};
-
-const getLocalDate = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 const getPrevDayDateStr = (targetDateStr) => {
@@ -113,7 +114,6 @@ const normalizeRecordset = (recordset) => {
     });
 };
 
-// 🌟 SMART SHIFT ALGORITHM 
 const determineShift = (timeStr) => {
     if (!timeStr) return 'Unknown';
     const date = new Date(String(timeStr).replace(' ', 'T')); 
@@ -148,7 +148,7 @@ const EMP_MASTER_QUERY = `
 
 let memoryCache = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 300000; 
+const CACHE_TTL_MS = 60000; 
 let stampedePromise = null;
 
 const invalidateCache = () => { memoryCache = null; cacheTimestamp = 0; };
@@ -237,10 +237,10 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
         return {
             id: canteen.canteenid, name: canteen.canteenname || 'Unknown Canteen',
             stats: { 
-                totalExpected: 0, currentlyInside: 0, completedLunch: 0, remainingToday: 0, maxCapacity: parseInt(canteen.capacity) || 100, itemCounts: {}, itemConsumers: {}, 
+                totalExpected: 0, currentlyInside: 0, completedLunch: 0, nextBatchCount: 0, maxCapacity: parseInt(canteen.capacity) || 100, itemCounts: {}, itemConsumers: {}, 
                 insideList: [] 
             },
-            ...(summaryOnly ? {} : { employeesExpected: [], employeesInside: [], employeesCompleted: [], employeesRemaining: [] })
+            ...(summaryOnly ? {} : { employeesExpected: [], employeesInside: [], employeesCompleted: [], employeesNextBatch: [] })
         };
     }
 
@@ -281,7 +281,18 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
         endMins: parseTimeToMins(item.totime || item.ToTime)
     }));
 
-    // 🧱 GLOBAL DAY BOUNDARY CALCULATION
+    const activeItemsNowIds = new Set();
+    const isToday = targetDate === getISTDateStr().split('T')[0];
+    if (isToday) {
+        const currentMins = getISTTimeMins();
+        itemWindows.forEach(iw => {
+            if (currentMins >= iw.startMins && currentMins <= iw.endMins) {
+                const id = String(iw.itemid || iw.ItemID || iw.ItemId).trim();
+                if (id) activeItemsNowIds.add(id);
+            }
+        });
+    }
+
     let globalMaxItemEndMins = 1440; 
     if (itemsMaster && itemsMaster.length > 0) {
         globalMaxItemEndMins = Math.max(...itemsMaster.map(item => parseTimeToMins(item.totime || item.ToTime)));
@@ -314,16 +325,13 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
         }
     });
 
-    let employeesExpected = [], employeesInside = [], employeesCompleted = [], employeesRemaining = [];
+    let employeesExpected = [], employeesInside = [], employeesCompleted = [], employeesNextBatch = [];
     const itemCounts = {}, itemConsumers = {};
     itemWindows.forEach(iw => {
         const iId = iw.itemid || iw.ItemID || iw.ItemId;
         itemCounts[iId] = 0; itemConsumers[iId] = [];
     });
 
-    // ==========================================================
-    // 🧠 CORE ENGINE: Chronological State Machine
-    // ==========================================================
     eligibleEmps.forEach((empData, empCodeNormalized) => {
         const empLogs = uniqueLogs.filter(l => normalizeEmpCode(l.empcode) === empCodeNormalized);
         
@@ -336,12 +344,14 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
         let lastGateTime = null;
         let lastCanteenIp = null;
         let lastCanteenTime = null;
+        let lastCanteenOutIp = null;
+        let lastCanteenOutTime = null;
+        let lastCompletedItemName = '---';
 
         let consumedItems = new Map(); 
         let completedItemIds = new Set(); 
         let currentItemBeingConsumed = null;
         let currentActiveItemName = '---';
-        let hasVisitedCanteenToday = false; 
 
         empLogs.forEach(log => {
             const logMins = getLogicalMinsFromDateStr(log.exacttransdate, targetDate);
@@ -353,7 +363,6 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
             const isCanteenDevice = canteenIpsSet.has(ip);
             
             if (!isCanteenDevice) {
-                // GATE ACTIONS
                 if (io === 'IN') {
                     companyState = 'IN';
                     lastGateIp = ip; 
@@ -363,19 +372,16 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
                     canteenState = 'OUT'; 
                 }
             } else {
-                // CANTEEN ACTIONS
                 if (io === 'IN') {
                     companyState = 'IN'; 
                     canteenState = 'IN';
                     lastCanteenIp = ip; 
                     lastCanteenTime = log.exacttransdate || log.transdate;
-                    hasVisitedCanteenToday = true; 
 
-                    // Match item based strictly on IN time
                     const activeItem = itemWindows.find(iw => logMins >= iw.startMins && logMins <= iw.endMins);
                     
                     if (activeItem) {
-                        const iId = activeItem.itemid || activeItem.ItemID || activeItem.ItemId;
+                        const iId = String(activeItem.itemid || activeItem.ItemID || activeItem.ItemId).trim();
                         
                         if (!consumedItems.has(iId)) {
                             currentItemBeingConsumed = iId;
@@ -411,12 +417,16 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
                 } else if (io === 'OUT') {
                     companyState = 'IN'; 
                     canteenState = 'OUT';
+                    lastCanteenOutIp = ip;
+                    lastCanteenOutTime = log.exacttransdate || log.transdate;
                     
                     if (currentItemBeingConsumed) {
                         const consumerRecord = consumedItems.get(currentItemBeingConsumed);
                         if(consumerRecord) {
                             consumerRecord.outTime = log.exacttransdate || log.transdate;
                         }
+
+                        lastCompletedItemName = currentActiveItemName;
 
                         if (!completedItemIds.has(currentItemBeingConsumed)) {
                             completedItemIds.add(currentItemBeingConsumed);
@@ -458,7 +468,6 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
             shiftGroup: empShiftGroup
         };
 
-        // FINAL BUCKETING LOGIC
         if (companyState === 'IN') {
             if (canteenState === 'IN') {
                 employeesInside.push({
@@ -470,21 +479,24 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
                     mealName: currentActiveItemName 
                 });
             } else if (canteenState === 'OUT') {
-                employeesExpected.push({
-                    ...baseData,
-                    ipAddress: lastGateIp,
-                    deviceName: ipToDeviceMap.get(lastGateIp) || 'Terminal',
-                    processedDate: lastGateTime,
-                    inOut: 'IN'
-                });
+                const hasCompletedActiveItem = Array.from(activeItemsNowIds).some(id => completedItemIds.has(id));
 
-                if (!hasVisitedCanteenToday) {
-                    employeesRemaining.push({
+                if (hasCompletedActiveItem) {
+                    employeesNextBatch.push({
+                        ...baseData,
+                        ipAddress: lastCanteenOutIp,
+                        deviceName: ipToDeviceMap.get(lastCanteenOutIp) || 'Terminal',
+                        processedDate: lastCanteenOutTime,
+                        inOut: 'OUT',
+                        mealName: lastCompletedItemName
+                    });
+                } else {
+                    employeesExpected.push({
                         ...baseData,
                         ipAddress: lastGateIp,
                         deviceName: ipToDeviceMap.get(lastGateIp) || 'Terminal',
                         processedDate: lastGateTime,
-                        inOut: 'PENDING'
+                        inOut: 'IN'
                     });
                 }
             }
@@ -497,12 +509,11 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
             totalExpected: employeesExpected.length, 
             currentlyInside: employeesInside.length, 
             completedLunch: employeesCompleted.length,
-            remainingToday: employeesRemaining.length, 
-            totalClocked: employeesExpected.length + employeesInside.length + employeesCompleted.length,
+            nextBatchCount: employeesNextBatch.length, 
+            totalClocked: employeesExpected.length + employeesInside.length + employeesNextBatch.length,
             maxCapacity: parseInt(canteen.capacity) || 100, 
             itemCounts: itemCounts, 
             itemConsumers: itemConsumers,
-            // Expose lightweight data array for frontend overtime alerts globally
             insideList: employeesInside.map(e => ({
                 id: e.id,
                 name: e.name,
@@ -513,14 +524,14 @@ const calculateMetricsForCanteen = (canteen, devices, logs, employees, itemsMast
 
     if (!summaryOnly) {
         result.employeesExpected = employeesExpected; result.employeesInside = employeesInside;
-        result.employeesCompleted = employeesCompleted; result.employeesRemaining = employeesRemaining;
+        result.employeesCompleted = employeesCompleted; result.employeesNextBatch = employeesNextBatch;
     }
     return result;
 };
 
 const refreshCanteenStats = async (pool, targetDate = null, summaryOnly = true) => {
   try {
-    const target = (targetDate || getLocalDate()).split('T')[0];
+    const target = (targetDate || getISTDateStr()).split('T')[0];
     
     const prevDayStr = getPrevDayDateStr(target);
     const nextDayStr = getNextDayDateStr(target);
@@ -546,30 +557,30 @@ const refreshCanteenStats = async (pool, targetDate = null, summaryOnly = true) 
         calculateMetricsForCanteen(canteen, masterData.devices, normLogs, masterData.employees, masterData.items, target, summaryOnly)
     );
 
-    let gExpected = 0, gInside = 0, gCompleted = 0, gRemaining = 0, gClocked = 0;
+    let gExpected = 0, gInside = 0, gCompleted = 0, gNextBatch = 0, gClocked = 0;
     canteensStats.forEach(c => {
         if (c.stats) {
             gExpected += c.stats.totalExpected || 0;
             gInside += c.stats.currentlyInside || 0;
             gCompleted += c.stats.completedLunch || 0;
-            gRemaining += c.stats.remainingToday || 0;
+            gNextBatch += c.stats.nextBatchCount || 0;
             gClocked += c.stats.totalClocked || 0;
         }
     });
 
     return { 
         canteens: canteensStats, 
-        stats: { totalExpected: gExpected, currentlyInside: gInside, completedLunch: gCompleted, remainingToday: gRemaining, totalClocked: gClocked } 
+        stats: { totalExpected: gExpected, currentlyInside: gInside, completedLunch: gCompleted, nextBatchCount: gNextBatch, totalClocked: gClocked } 
     };
   } catch (err) {
     handleSQLError(err, null, "refreshCanteenStats");
-    return { canteens: [], stats: { totalExpected: 0, currentlyInside: 0, completedLunch: 0, remainingToday: 0, totalClocked: 0 } };
+    return { canteens: [], stats: { totalExpected: 0, currentlyInside: 0, completedLunch: 0, nextBatchCount: 0, totalClocked: 0 } };
   }
 };
 
 const fetchCanteenMetrics = async (pool, canteenId, targetDate = null) => {
   try {
-    const target = (targetDate || getLocalDate()).split('T')[0];
+    const target = (targetDate || getISTDateStr()).split('T')[0];
     
     const prevDayStr = getPrevDayDateStr(target);
     const nextDayStr = getNextDayDateStr(target);
@@ -601,47 +612,62 @@ const fetchCanteenMetrics = async (pool, canteenId, targetDate = null) => {
 };
 
 // ==========================================
-// 📡 SMART WEBSOCKET POLLING ENGINE
+// 📡 BULLETPROOF REAL-TIME CACHE ENGINE
 // ==========================================
-let lastKnownSwipeTime = null;
+let lastStateHash = null;
+let cachedLiveStats = null;
 
-const checkDatabaseForNewSwipes = async () => {
+const checkDatabaseForUpdates = async () => {
     try {
         const pool = await poolConnect;
-        const target = getLocalDate();
+        const target = getISTDateStr();
+        const currentMinute = getISTTimeMins();
         const prevDayStr = getPrevDayDateStr(target);
-        const nextDayStr = getNextDayDateStr(target);
+        const targetDateStartStr = `${prevDayStr} 12:00:00.000`; 
 
-        const targetDateStartStr = `${prevDayStr} 12:00:00.000`;
-        const targetDateEndExtStr = `${nextDayStr} 23:59:59.000`;
-
-        const res = await pool.request()
+        // 🟢 THE FIX: Row-Count Invalidation.
+        // Even if offline devices push "old" logs out of order, the total count will change!
+        // This completely eliminates any lag on the Home Page dashboard.
+        const checkRes = await pool.request()
             .input('start', sql.NVarChar, targetDateStartStr)
-            .input('end', sql.NVarChar, targetDateEndExtStr)
             .query(`
-                SELECT MAX(TransDate) as LastSwipe FROM dbo.Attlogs WITH (NOLOCK) 
-                WHERE TransDate >= CAST(@start AS DATETIME) AND TransDate <= CAST(@end AS DATETIME)
+                SELECT COUNT_BIG(*) as LogCount, MAX(TransDate) as LastLog
+                FROM dbo.Attlogs WITH (NOLOCK) 
+                WHERE TransDate >= CAST(@start AS DATETIME)
             `);
         
-        const currentMax = res.recordset[0].LastSwipe ? res.recordset[0].LastSwipe.getTime() : null;
+        const currentLogCount = checkRes.recordset[0].LogCount || 0;
+        const lastLogTime = checkRes.recordset[0].LastLog ? checkRes.recordset[0].LastLog.getTime() : 0;
+        
+        const currentStateHash = `${currentLogCount}_${lastLogTime}_${currentMinute}`;
 
-        if (currentMax !== lastKnownSwipeTime) {
-            lastKnownSwipeTime = currentMax;
-            const stats = await refreshCanteenStats(pool, target, true);
-            io.emit('dashboard_update', stats);
+        if (currentStateHash !== lastStateHash || !cachedLiveStats) {
+            lastStateHash = currentStateHash;
+            cachedLiveStats = await refreshCanteenStats(pool, target, true);
+            io.emit('dashboard_update', cachedLiveStats);
         }
-    } catch (err) { console.error("Smart Polling Error:", err.message); }
+    } catch (err) { 
+        console.error("Smart Polling Error:", err.message); 
+    }
 };
 
 const startSmartPolling = async () => {
-    try { await checkDatabaseForNewSwipes(); } catch (err) {} finally { setTimeout(startSmartPolling, 3000); }
+    try { 
+        await checkDatabaseForUpdates(); 
+    } catch (err) {} finally { 
+        setTimeout(startSmartPolling, 1000); 
+    }
 };
 
 io.on('connection', async (socket) => {
     try {
-        const pool = await poolConnect;
-        const stats = await refreshCanteenStats(pool, getLocalDate(), true);
-        socket.emit('dashboard_update', stats);
+        if (cachedLiveStats) {
+            socket.emit('dashboard_update', cachedLiveStats);
+        } else {
+            const pool = await poolConnect;
+            const stats = await refreshCanteenStats(pool, getISTDateStr(), true);
+            socket.emit('dashboard_update', stats);
+        }
     } catch (err) {}
 });
 
@@ -651,7 +677,7 @@ io.on('connection', async (socket) => {
 
 app.use("/", adminRoutes(poolConnect, handleSQLError, invalidateCache, refreshCanteenStats, sql, authenticateJWT, JWT_SECRET, jwt));
 
-// 📝 UPDATED: SUPER REPORTS GENERATOR (Handles ALL Canteens & Extra Price Data)
+// 📝 SUPER REPORTS GENERATOR
 app.post("/api/reports/canteen-summary", authenticateJWT, async (req, res) => {
     try {
         const { startDate, endDate, canteenIds } = req.body;
@@ -678,7 +704,6 @@ app.post("/api/reports/canteen-summary", authenticateJWT, async (req, res) => {
 
         const normLogs = normalizeRecordset(logsRes.recordset);
 
-        // 🌟 FIX: Support "ALL" keyword to pull data across every canteen natively
         let selectedCanteens = [];
         if (canteenIds.includes("ALL")) {
             selectedCanteens = masterData.canteens;
@@ -785,9 +810,9 @@ app.post("/api/reports/canteen-summary", authenticateJWT, async (req, res) => {
                                 company: empData.company || empData.Company || '---',
                                 dept: empData.dept || empData.Dept || '---',
                                 itemName: activeItem.ItemName || activeItem.itemname || activeItem.itemName || 'Meal',
-                                shiftGroup: activeItem.ShiftGroup || activeItem.shiftGroup || activeItem.shiftgroup || '---', // 🌟 NEW
-                                empRate: empRate, // 🌟 NEW
-                                employeerRate: coRate, // 🌟 NEW
+                                shiftGroup: activeItem.ShiftGroup || activeItem.shiftGroup || activeItem.shiftgroup || '---', 
+                                empRate: empRate, 
+                                employeerRate: coRate, 
                                 totalAmount: totalValue,
                                 inTime: log.exacttransdate,
                                 outTime: null,
@@ -824,14 +849,13 @@ app.post("/api/reports/canteen-summary", authenticateJWT, async (req, res) => {
     }
 });
 
-
 app.get("/api/dashboard-advanced", authenticateJWT, async (req, res) => {
-  const targetDate = req.query.date || getLocalDate();
+  const targetDate = req.query.date || getISTDateStr();
   try {
     const pool = await poolConnect;
     const dashboardData = await refreshCanteenStats(pool, targetDate, true);
     const gStats = dashboardData.stats;
-    res.json({ expected: gStats.totalExpected, inside: gStats.currentlyInside, completed: gStats.completedLunch, remaining: gStats.remainingToday, clocked: gStats.totalClocked }); 
+    res.json({ expected: gStats.totalExpected, inside: gStats.currentlyInside, completed: gStats.completedLunch, nextBatch: gStats.nextBatchCount, clocked: gStats.totalClocked }); 
   } catch (err) { handleSQLError(err, res, "GET /api/dashboard-advanced"); }
 });
 
@@ -853,8 +877,15 @@ app.get("/api/canteens-list", authenticateJWT, async (req, res) => {
 
 app.get("/api/dashboard", authenticateJWT, async (req, res) => {
   try {
+    const targetDate = req.query.date;
+    const isToday = !targetDate || targetDate === getISTDateStr();
+    
+    if (isToday && cachedLiveStats) {
+        return res.json(cachedLiveStats);
+    }
+    
     const pool = await poolConnect;
-    res.json(await refreshCanteenStats(pool, req.query.date, true));
+    res.json(await refreshCanteenStats(pool, targetDate, true));
   } catch (err) { handleSQLError(err, res, "GET /api/dashboard"); }
 });
 
@@ -921,6 +952,32 @@ app.get("/api/all-devices", authenticateJWT, async (req, res) => {
   } catch (err) { handleSQLError(err, res, "GET /api/all-devices"); }
 });
 
+app.get("/api/search-employees", authenticateJWT, async (req, res) => {
+    try {
+        const pool = await poolConnect;
+        const searchQuery = req.query.q || '';
+        
+        if (searchQuery.trim().length === 0) return res.json({ success: true, data: [] });
+
+        const result = await pool.request()
+            .input('search', sql.NVarChar, `%${searchQuery}%`)
+            .input('startsWith', sql.NVarChar, `${searchQuery}%`)
+            .query(`
+                SELECT TOP 20 empcode AS empId, Name AS empName
+                FROM dbo.empmst WITH (NOLOCK)
+                WHERE Name LIKE @search OR empcode LIKE @search
+                ORDER BY 
+                    CASE WHEN empcode LIKE @startsWith THEN 1 ELSE 2 END,
+                    empcode ASC
+            `);
+
+        res.json({ success: true, data: result.recordset });
+    } catch (err) {
+        console.error("Search Error:", err.message);
+        res.status(500).json({ success: false, error: "Database search failed." });
+    }
+});
+
 const initializeDatabase = async () => {
   try {
     const pool = await poolConnect;
@@ -934,7 +991,24 @@ const initializeDatabase = async () => {
   } catch (err) { handleSQLError(err, null, "initializeDatabase"); }
 };
 
+// ==========================================
+// 🛑 SERVER BOOT & GRACEFUL SHUTDOWN
+// ==========================================
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Backend running natively with WebSockets on port ${PORT}`);
-  initializeDatabase();
+    console.log(`🚀 Backend running natively with WebSockets on port ${PORT}`);
+    initializeDatabase();
+});
+
+process.once('SIGUSR2', () => {
+    console.log("♻️ Nodemon restart detected. Releasing port...");
+    server.close(() => {
+        process.kill(process.pid, 'SIGUSR2');
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log("🛑 Server shutting down. Releasing port...");
+    server.close(() => {
+        process.exit(0);
+    });
 });

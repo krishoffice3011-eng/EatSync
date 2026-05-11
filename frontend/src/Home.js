@@ -27,7 +27,7 @@ const GodCalendarSelect = ({ value, onChange, options, hasDataFn }) => {
   const selectedLabel = options.find(opt => String(opt.value) === String(value))?.label;
 
   return (
-    <div className="calendar-selector-wrapper" ref={dropdownRef}>
+    <div className="calendar-selector-wrapper" ref={dropdownRef} style={{ position: 'relative' }}>
       <div 
         className={`calendar-selector-custom ${isOpen ? 'open' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
@@ -41,7 +41,7 @@ const GodCalendarSelect = ({ value, onChange, options, hasDataFn }) => {
         <span className="selector-arrow">▼</span>
       </div>
       {isOpen && (
-        <div className="calendar-dropdown-list">
+        <div className="calendar-dropdown-list" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10000, width: '100%', minWidth: '120px' }}>
           {options.map(opt => {
             const hasData = hasDataFn(opt.value);
             return (
@@ -82,7 +82,6 @@ const GodCalendar = ({ selectedDate, setSelectedDate, activeDates }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 📅 Calculate Today's Date String for Highlighting & Locking
   const todayDateObj = new Date();
   const todayStr = `${todayDateObj.getFullYear()}-${String(todayDateObj.getMonth() + 1).padStart(2, '0')}-${String(todayDateObj.getDate()).padStart(2, '0')}`;
 
@@ -106,7 +105,7 @@ const GodCalendar = ({ selectedDate, setSelectedDate, activeDates }) => {
         day: d, month: month, year: year, dateStr,
         isActive: activeDates && activeDates.includes(dateStr),
         isSelected: selectedDate === dateStr,
-        isToday: dateStr === todayStr, // Flag for current date
+        isToday: dateStr === todayStr,
         otherMonth: false
       });
     }
@@ -131,7 +130,7 @@ const GodCalendar = ({ selectedDate, setSelectedDate, activeDates }) => {
   const hasDataInMonth = (month) => activeDates && activeDates.some(d => d.startsWith(`${viewDate.getFullYear()}-${String(parseInt(month) + 1).padStart(2, '0')}`));
 
   return (
-    <div className="flex-align-center gap-10" style={{ position: 'relative' }} ref={calendarRef}>
+    <div className="flex-align-center gap-10" style={{ position: 'relative', zIndex: 1000 }} ref={calendarRef}>
       <div className="flex-align-center gap-15">
         {selectedDate && (
           <button 
@@ -152,7 +151,7 @@ const GodCalendar = ({ selectedDate, setSelectedDate, activeDates }) => {
       </div>
 
       {isOpen && (
-        <div className="calendar-dropdown-container">
+        <div className="calendar-dropdown-container" style={{ position: 'absolute', top: '120%', right: 0, zIndex: 9999 }}>
           <div className="calendar-header">
             <button className="calendar-nav-btn" onClick={() => changeMonth(-1)}>←</button>
             <div className="calendar-select-group">
@@ -171,9 +170,7 @@ const GodCalendar = ({ selectedDate, setSelectedDate, activeDates }) => {
                 className={`calendar-date-cell ${d.otherMonth ? 'other-month' : ''} ${d.isActive ? 'is-active-data' : ''} ${d.isSelected ? 'is-selected' : ''} ${d.isToday ? 'is-today' : ''}`}
                 onClick={() => {
                   if (!d.otherMonth) { 
-                    // 🚨 PREVENT SELECTING TODAY'S DATE
                     if (d.isToday) return; 
-                    
                     setSelectedDate(d.dateStr); 
                     setIsOpen(false); 
                   } else { 
@@ -228,10 +225,13 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
   const [nowTicker, setNowTicker] = useState(Date.now());
   const [showExtendedStayModal, setShowExtendedStayModal] = useState(false);
   
+  // 🚨 Add new default states to ensure stability if API takes a second
   const [tickerSettings, setTickerSettings] = useState({
     tickers: [],
     overtimeLimit: 30,
     tickerSpeed: 60,
+    alertTickerSpeed: 50,
+    tickerDirection: 'rtl',
     tickerColor: '#38bdf8'
   });
 
@@ -282,7 +282,6 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
     return () => clearInterval(timeSyncInterval);
   }, [tickerSettings]);
 
-  // 🚨 EXTENDED STAY CALCULATION LOGIC
   const extendedStayEmployees = useMemo(() => {
     const limit = tickerSettings?.overtimeLimit || 30; 
     const list = [];
@@ -414,9 +413,9 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
               <span className="stat-value">{canteen.stats?.completedLunch || 0}</span>
             </div>
             <div className="god-stat-box red">
-              <span className="stat-label">Remaining</span>
+              <span className="stat-label">Next Batch</span>
               <span className="stat-value">
-                {canteen.stats?.remainingToday || Math.max(0, (canteen.stats?.totalExpected || 0) - ((canteen.stats?.currentlyInside || 0) + (canteen.stats?.completedLunch || 0)))}
+                {canteen.stats?.nextBatchCount || 0}
               </span>
             </div>
           </div>
@@ -579,13 +578,32 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
     });
   }, [visibleCanteens, itemsMaster, navigate]);
 
+  // 🚨 NEW: Dynamic Keyframes based on Ticker Direction
+  const animationKeyframes = useMemo(() => {
+    const isLTR = tickerSettings.tickerDirection === 'ltr';
+    const startX = isLTR ? '-50%' : '0%';
+    const endX = isLTR ? '0%' : '-50%';
+    
+    return `
+      @keyframes scrollTickerHome { 
+        0% { transform: translateX(${startX}); } 
+        100% { transform: translateX(${endX}); } 
+      }
+      @keyframes scrollAlertTicker { 
+        0% { transform: translateX(${startX}); } 
+        100% { transform: translateX(${endX}); } 
+      }
+      .ticker-scroll-container:hover .ticker-track { animation-play-state: paused; }
+    `;
+  }, [tickerSettings.tickerDirection]);
+
   return (
     <div className="split-layout-wrapper">
       <div className="main-pane-80" style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', flex: 1, overflow: 'hidden' }}>
         
         <main className="main-scrollable-content fade-in" style={{ paddingBottom: '0px', flex: 1, overflowY: 'auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
           
-          <div className="section-header-premium mb-20" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div className="section-header-premium mb-20" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 100 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                 <h2 className="section-title m-0" style={{ fontSize: '1.6rem', fontWeight: '900', letterSpacing: '-0.4px', display: 'flex', alignItems: 'center' }}>
@@ -659,6 +677,7 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
             <div className="ticker-scroll-container" style={{
               display: 'flex', whiteSpace: 'nowrap', paddingLeft: '160px', width: '100%'
             }}>
+              {/* 🚨 DYNAMIC MAIN TICKER SPEED */}
               <div className="ticker-track" style={{
                 display: 'flex', gap: '50px', animation: `scrollTickerHome ${tickerSettings.tickerSpeed || 60}s linear infinite`
               }}>
@@ -674,10 +693,9 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
               </div>
             </div>
 
-            <style>{`
-              @keyframes scrollTickerHome { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-              .ticker-scroll-container:hover .ticker-track { animation-play-state: paused; }
-            `}</style>
+            {/* 🚨 DYNAMIC CSS INJECTION */}
+            <style dangerouslySetInnerHTML={{ __html: animationKeyframes }} />
+            
           </div>
           
           {visibleCanteens.length === 0 ? (
@@ -720,7 +738,9 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
               gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', 
               gap: '30px', 
               width: '100%',
-              marginBottom: '30px'
+              marginBottom: '30px',
+              position: 'relative',
+              zIndex: 1
             }} key={`${selectedDate || 'live'}-${viewMode}`}>
               {viewMode === 'canteen' ? canteenCards : itemCards}
             </div>
@@ -733,20 +753,18 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
           <div className="fade-in" style={{ 
             position: 'sticky', bottom: '15px', zIndex: 50,
             display: 'flex', alignItems: 'center', 
-            background: '#dc2626', /* 🔴 SOLID RED BACKGROUND */
+            background: '#dc2626',
             borderRadius: '16px', height: '60px', overflow: 'hidden', flexShrink: 0,
             border: '1px solid #b91c1c', 
             boxShadow: '0 15px 35px rgba(220, 38, 38, 0.35), inset 0 2px 10px rgba(255,255,255,0.1)', 
             margin: '0 10px'
           }}>
 
-            {/* LEFT SIDE: Fixed Overlay - Clean Cut */}
             <div style={{
               position: 'absolute', left: 0, zIndex: 20,
               background: 'linear-gradient(90deg, #dc2626 90%, rgba(220,38,38,0))', 
               padding: '0 30px 0 20px', display: 'flex', alignItems: 'center', height: '100%'
             }}>
-              {/* 🌟 IMPROVED ACTION REQUIRED BADGE - OBSIDIAN GLOW */}
               <div style={{
                 background: 'linear-gradient(135deg, #020617 0%, #0f172a 100%)', 
                 color: '#ffffff', 
@@ -761,22 +779,19 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
               </div>
             </div>
 
-            {/* 🌬️ RIGHT SIDE EFFECT REMOVED AS REQUESTED - Text scrolls in sharply from edge */}
-
-            {/* 🔄 SCROLLING TRACK */}
             <div className="ticker-scroll-container" style={{
               display: 'flex', whiteSpace: 'nowrap', paddingLeft: '270px', width: '100%'
             }}>
-              {/* ⏱️ SPEED SET TO 50 SECONDS */}
+              {/* 🚨 DYNAMIC ALERT TICKER SPEED */}
               <div className="ticker-track" style={{
-                display: 'flex', gap: '40px', animation: `scrollTickerHome 50s linear infinite`
+                display: 'flex', gap: '40px', animation: `scrollAlertTicker ${tickerSettings.alertTickerSpeed || 50}s linear infinite`
               }}>
                 {[...extendedStayEmployees, ...extendedStayEmployees].map((e, idx) => (
                   <div key={`${e.id}-${idx}`} style={{ 
                     color: '#ffffff', 
                     fontWeight: '800', fontSize: '1.05rem', 
                     display: 'flex', alignItems: 'center', gap: '12px',
-                    background: 'rgba(0, 0, 0, 0.15)', /* Sleek dark pill inside the red ticker */
+                    background: 'rgba(0, 0, 0, 0.15)',
                     padding: '6px 16px', borderRadius: '100px',
                     border: '1px solid rgba(255, 255, 255, 0.1)'
                   }}>
@@ -887,7 +902,7 @@ function Home({ visibleCanteens, itemsMaster, globalData, role, selectedDate, se
                 <PremiumStatCard icon="👥" title="Expected" value={globalData?.stats?.totalExpected || 0} gradient="linear-gradient(135deg, #6366f1 0%, #4338ca 100%)" shadowColor="rgba(99, 102, 241, 0.4)" />
                 <PremiumStatCard icon="🕒" title="Inside" value={globalData?.stats?.currentlyInside || 0} gradient="linear-gradient(135deg, #f59e0b 0%, #b45309 100%)" shadowColor="rgba(245, 158, 11, 0.4)" />
                 <PremiumStatCard icon="✅" title="Completed" value={globalData?.stats?.completedLunch || 0} gradient="linear-gradient(135deg, #10b981 0%, #047857 100%)" shadowColor="rgba(16, 185, 129, 0.4)" />
-                <PremiumStatCard icon="⏳" title="Remaining" value={globalData?.stats?.remainingToday || 0} gradient="linear-gradient(135deg, #ef4444 0%, #be123c 100%)" shadowColor="rgba(239, 68, 68, 0.4)" />
+                <PremiumStatCard icon="⏳" title="Next Batch" value={globalData?.stats?.nextBatchCount || 0} gradient="linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)" shadowColor="rgba(139, 92, 246, 0.4)" />
               </>
           ) : (
               <>

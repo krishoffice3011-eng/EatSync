@@ -11,6 +11,11 @@ function ManageTickers({ role }) {
   const [newTicker, setNewTicker] = useState('');
   const [overtimeLimit, setOvertimeLimit] = useState(30); 
   const [tickerSpeed, setTickerSpeed] = useState(60); 
+  
+  // 🆕 NEW STATES FOR ALERT SPEED & DIRECTION
+  const [alertTickerSpeed, setAlertTickerSpeed] = useState(50); 
+  const [tickerDirection, setTickerDirection] = useState('rtl'); 
+  
   const [tickerColor, setTickerColor] = useState('#38bdf8');
   
   const [loading, setLoading] = useState(true);
@@ -41,6 +46,11 @@ function ManageTickers({ role }) {
         setTickers(Array.isArray(data.tickers) ? data.tickers : []);
         setOvertimeLimit(data.overtimeLimit || 30);
         setTickerSpeed(data.tickerSpeed || 60);
+        
+        // 🆕 SET NEW VALUES IF THEY EXIST IN DB
+        setAlertTickerSpeed(data.alertTickerSpeed || 50);
+        setTickerDirection(data.tickerDirection || 'rtl');
+        
         setTickerColor(data.tickerColor || '#38bdf8');
       }
     } catch (err) {
@@ -81,6 +91,8 @@ function ManageTickers({ role }) {
         tickers: updatedTickers,
         overtimeLimit: parseInt(overtimeLimit) || 30,
         tickerSpeed: parseInt(tickerSpeed) || 60,
+        alertTickerSpeed: parseInt(alertTickerSpeed) || 50, // 🆕 SAVE ALERT SPEED
+        tickerDirection: tickerDirection, // 🆕 SAVE DIRECTION
         tickerColor: tickerColor
       };
 
@@ -176,7 +188,7 @@ function ManageTickers({ role }) {
               </div>
 
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: '800', marginBottom: '8px', color: '#64748b', display: 'block' }}>Ticker Speed (Seconds)</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: '800', marginBottom: '8px', color: '#64748b', display: 'block' }}>Main Ticker Speed (Secs)</label>
                 <input 
                   type="number" 
                   className="manager-input" 
@@ -184,6 +196,32 @@ function ManageTickers({ role }) {
                   onChange={e => setTickerSpeed(e.target.value)} 
                   style={{ height: '50px', fontSize: '1rem', fontWeight: '600', border: '1px solid #cbd5e1', borderRadius: '12px' }} 
                 />
+              </div>
+
+              {/* 🆕 ALERT SPEED INPUT */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: '800', marginBottom: '8px', color: '#64748b', display: 'block' }}>Alert Speed (Secs)</label>
+                <input 
+                  type="number" 
+                  className="manager-input" 
+                  value={alertTickerSpeed} 
+                  onChange={e => setAlertTickerSpeed(e.target.value)} 
+                  style={{ height: '50px', fontSize: '1rem', fontWeight: '600', border: '1px solid #cbd5e1', borderRadius: '12px' }} 
+                />
+              </div>
+
+              {/* 🆕 TICKER DIRECTION DROPDOWN */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: '800', marginBottom: '8px', color: '#64748b', display: 'block' }}>Ticker Direction</label>
+                <select 
+                  className="manager-input" 
+                  value={tickerDirection} 
+                  onChange={e => setTickerDirection(e.target.value)} 
+                  style={{ height: '50px', fontSize: '1rem', fontWeight: '600', border: '1px solid #cbd5e1', borderRadius: '12px', background: 'white' }}
+                >
+                  <option value="rtl">Right to Left ⬅️</option>
+                  <option value="ltr">Left to Right ➡️</option>
+                </select>
               </div>
 
               <div>
@@ -211,7 +249,7 @@ function ManageTickers({ role }) {
                 style={{ height: '50px', padding: '0 30px', fontSize: '0.9rem', fontWeight: '800', borderRadius: '12px', boxShadow: '0 10px 20px var(--primary-glow)' }}
                 disabled={saving}
               >
-                {saving ? 'Saving...' : '💾 Save System Settings'}
+                {saving ? 'Saving...' : '💾 Save Settings'}
               </button>
             </div>
 

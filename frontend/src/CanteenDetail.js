@@ -72,7 +72,6 @@ function CanteenDetail({ selectedDate }) {
   const [activeTab, setActiveTab] = useState('expected');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Metric Selection States
   const [trendMetric, setTrendMetric] = useState('hourly');
   const [distMetric, setDistMetric] = useState('category'); 
   
@@ -113,7 +112,7 @@ function CanteenDetail({ selectedDate }) {
     fetchCanteenDetail();
 
     return () => {
-      abortController.abort(); // Cancel pending fetch on unmount
+      abortController.abort(); 
     };
   }, [id, selectedDate]);
 
@@ -159,32 +158,23 @@ function CanteenDetail({ selectedDate }) {
     const employeesExpected = (activeData.employeesExpected || []).map(mapEmployee);
     const employeesInside = (activeData.employeesInside || []).map(mapEmployee);
     const employeesCompleted = (activeData.employeesCompleted || []).map(mapEmployee);
-    const employeesRemaining = (activeData.employeesRemaining || []).map(mapEmployee);
-
-    const allPersonnelRaw = [
-      ...employeesInside,
-      ...employeesCompleted,
-      ...employeesRemaining,
-      ...employeesExpected
-    ];
-    
-    const uniqueExpected = Array.from(new Map(allPersonnelRaw.map(item => [item.id, item])).values());
+    const employeesNextBatch = (activeData.employeesNextBatch || []).map(mapEmployee);
 
     const stats = {
-        totalExpected: activeData.stats?.totalExpected || employeesExpected.length || uniqueExpected.length || 0,
+        totalExpected: activeData.stats?.totalExpected || employeesExpected.length || 0,
         currentlyInside: activeData.stats?.currentlyInside || employeesInside.length || 0,
         completedLunch: activeData.stats?.completedLunch || employeesCompleted.length || 0,
-        remainingToday: activeData.stats?.remainingToday || employeesRemaining.length || 0,
+        nextBatchCount: activeData.stats?.nextBatchCount || employeesNextBatch.length || 0,
         maxCapacity: activeData.stats?.maxCapacity || 100
     };
 
     return {
         ...activeData,
         stats,
-        employeesExpected: employeesExpected.length > 0 ? employeesExpected : uniqueExpected,
+        employeesExpected, 
         employeesInside,
         employeesCompleted,
-        employeesRemaining
+        employeesNextBatch
     };
   }, [activeData]);
 
@@ -194,7 +184,7 @@ function CanteenDetail({ selectedDate }) {
     if (activeTab === 'expected') list = processedData.employeesExpected || [];
     else if (activeTab === 'inside') list = processedData.employeesInside || [];
     else if (activeTab === 'completed') list = processedData.employeesCompleted || [];
-    else if (activeTab === 'remaining') list = processedData.employeesRemaining || [];
+    else if (activeTab === 'nextBatch') list = processedData.employeesNextBatch || [];
 
     if (searchQuery) {
       const sq = searchQuery.toLowerCase();
@@ -224,10 +214,8 @@ function CanteenDetail({ selectedDate }) {
     return sorted;
   }, [processedData, activeTab, searchQuery, sortConfig]);
 
-  // Determine if Item Name column should be shown based on Active Tab
-  const showItemColumn = activeTab === 'inside' || activeTab === 'completed';
+  const showItemColumn = activeTab === 'inside' || activeTab === 'completed' || activeTab === 'nextBatch';
 
-  // Excel Export Logic with Item Name
   const executeExport = () => {
     if (filteredList.length === 0) {
       alert("No data available to export.");
@@ -302,7 +290,6 @@ function CanteenDetail({ selectedDate }) {
     XLSX.writeFile(workbook, `${activeData?.name || 'Canteen'}_${activeTab}_Log.xlsx`);
   };
 
-  // Trend Data (Hourly vs Device)
   const trendData = useMemo(() => {
     if (trendMetric === 'hourly') {
       const hours = {};
@@ -338,7 +325,6 @@ function CanteenDetail({ selectedDate }) {
     return [];
   }, [filteredList, trendMetric]);
 
-  // Distribution Data
   const distributionData = useMemo(() => {
     const counts = {};
     filteredList.forEach(e => {
@@ -396,7 +382,7 @@ function CanteenDetail({ selectedDate }) {
   const renderDynamicChart = (type, data, chartIdSuffix) => {
     const commonProps = {
       data,
-      margin: { top: 20, right: 30, left: 0, bottom: 0 }
+      margin: { top: 20, right: 30, left: 0, bottom: 20 }
     };
 
     const tooltipStyle = {
@@ -405,6 +391,22 @@ function CanteenDetail({ selectedDate }) {
       boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
       fontFamily: 'Outfit',
       fontWeight: '600'
+    };
+
+    // Beautiful box legend styling requested
+    const customLegendStyle = {
+      padding: '12px 20px',
+      background: '#f8fafc',
+      border: '1px solid #e2e8f0',
+      borderRadius: '16px',
+      boxShadow: '0 4px 10px rgba(0,0,0,0.04)',
+      fontSize: '0.75rem',
+      fontWeight: '800',
+      color: '#475569',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '15px'
     };
 
     const xAxisKey = data.length > 0 && data[0].name !== undefined ? 'name' : 'time';
@@ -419,7 +421,7 @@ function CanteenDetail({ selectedDate }) {
             <XAxis dataKey={xAxisKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dy={10} />
             <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dx={-10} />
             <Tooltip contentStyle={tooltipStyle} />
-            <Legend verticalAlign="top" height={36} iconType="circle" />
+            <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={customLegendStyle} />
             <Line 
               name="Total Count"
               type="monotone" 
@@ -450,7 +452,7 @@ function CanteenDetail({ selectedDate }) {
               <XAxis dataKey={xAxisKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dy={10} />
               <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dx={-10} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" height={36} iconType="circle" />
+              <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={customLegendStyle} />
               <Area 
                 name="Total Count"
                 type="monotone" 
@@ -475,7 +477,7 @@ function CanteenDetail({ selectedDate }) {
               <XAxis dataKey={xAxisKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dy={10} />
               <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dx={-10} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" height={36} iconType="circle" />
+              <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={customLegendStyle} />
               <Bar name="Count" dataKey={yAxisKey} fill="#818cf8" radius={[4, 4, 0, 0]} barSize={40} />
               <Line name="Trend Curve" type="monotone" dataKey={yAxisKey} stroke="#4f46e5" strokeWidth={3} dot={{r: 4}} />
             </ComposedChart>
@@ -486,11 +488,11 @@ function CanteenDetail({ selectedDate }) {
     if (type === 'pie' || type === 'donut') {
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
+          <PieChart margin={{ top: 0, right: 0, left: 0, bottom: 20 }}>
             <Pie 
               key={`pie-${data.length}`}
               data={data} 
-              cx="50%" cy="50%" 
+              cx="50%" cy="45%" 
               innerRadius={type === 'donut' ? 80 : 0} 
               outerRadius={110} 
               paddingAngle={5} 
@@ -504,7 +506,7 @@ function CanteenDetail({ selectedDate }) {
               ))}
             </Pie>
             <Tooltip contentStyle={tooltipStyle} />
-            <Legend verticalAlign="top" height={36} iconType="circle" />
+            <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{...customLegendStyle, marginTop: '20px'}} />
           </PieChart>
         </ResponsiveContainer>
       );
@@ -524,7 +526,7 @@ function CanteenDetail({ selectedDate }) {
           <XAxis dataKey={xAxisKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dy={10} />
           <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dx={-10} />
           <Tooltip contentStyle={tooltipStyle} cursor={{fill: '#f8fafc'}} />
-          <Legend verticalAlign="top" height={36} iconType="circle" />
+          <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={customLegendStyle} />
           <Bar 
             name="Total Count"
             dataKey={yAxisKey} 
@@ -549,10 +551,15 @@ function CanteenDetail({ selectedDate }) {
             <span className="breadcrumb-separator">/</span>
           </div>
           <div className="title-stack">
-            <h2 className="section-title m-0">{activeData.name}</h2>
-            <div className="status-indicator-row">
+            <h2 className="section-title m-0" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '1.6rem', background: '#e0e7ff', color: '#4f46e5', padding: '8px 12px', borderRadius: '12px', border: '1px solid #c7d2fe' }}>🏢</span>
+              {activeData.name}
+            </h2>
+            <div className="status-indicator-row" style={{ marginTop: '8px' }}>
                <span className="live-dot-pulse"></span>
-               <p className="text-slate m-0">Canteen Report • {selectedDate || 'Real-time'}</p>
+               <p className="text-slate m-0" style={{ fontWeight: '700' }}>
+                 Facility ID: #{id} • Max Capacity: {processedData?.stats?.maxCapacity || 0} • {selectedDate ? `Data for ${selectedDate}` : 'Live Real-Time Monitoring'}
+               </p>
             </div>
           </div>
         </div>
@@ -568,7 +575,7 @@ function CanteenDetail({ selectedDate }) {
 
            <div className="session-info-pill">
               <span className="pill-label">DATE</span>
-              <span className="pill-value">{selectedDate || 'LIVE'}</span>
+              <span className="pill-value">{selectedDate || 'LIVE NOW'}</span>
            </div>
         </div>
       </div>
@@ -595,10 +602,10 @@ function CanteenDetail({ selectedDate }) {
           </div>
           <div className="pill-icon">✅</div>
         </div>
-        <div className={`status-pill-v2 red ${activeTab === 'remaining' ? 'active' : ''}`} onClick={() => handleTabChange('remaining')}>
+        <div className={`status-pill-v2 red ${activeTab === 'nextBatch' ? 'active' : ''}`} onClick={() => handleTabChange('nextBatch')}>
           <div className="pill-content">
-            <span className="pill-label">REMAINING</span>
-            <span className="pill-value">{processedData?.stats?.remainingToday || 0}</span>
+            <span className="pill-label">NEXT BATCH</span>
+            <span className="pill-value">{processedData?.stats?.nextBatchCount || 0}</span>
           </div>
           <div className="pill-icon">⏳</div>
         </div>
@@ -680,7 +687,7 @@ function CanteenDetail({ selectedDate }) {
         <div className="flex-between mb-20 flex-align-center" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '15px' }}>
           
           <h2 className="section-title m-0" style={{fontSize: '1.25rem', color: 'var(--text-bold)', textTransform: 'capitalize'}}>
-            📋 {activeTab} List
+            📋 {activeTab === 'nextBatch' ? 'Next Batch' : activeTab} List
           </h2>
 
           <div className="flex-align-center gap-15">
@@ -752,7 +759,6 @@ function CanteenDetail({ selectedDate }) {
                 const hasItem = e.mealName && e.mealName !== '---';
 
                 return (
-                  /* FIX: Added compound key utilizing idx to prevent React node duplication during sorting */
                   <tr key={`${e.id}-${idx}`} style={{ animationDelay: `${idx * 0.03}s` }}>
                     <td><strong style={{color: 'var(--primary)', letterSpacing: '1px'}}>#{e.id}</strong></td>
                     <td style={{fontWeight: '700'}}>{e.name}</td>

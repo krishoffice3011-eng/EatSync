@@ -235,27 +235,27 @@ function ManageUser({ role }) {
     }
   };
 
-  // 🔒 Secured PUT route with JWT
-  const handleReset = async (id) => {
-    if (!window.confirm('Reset this user\'s password to "Test@123"?')) return;
+  // 🔒 FIX: Updated Reset Password to use exact Username via new API Route
+  const handleResetPassword = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to reset the password for ${name}?\n\nTheir new password will be exactly their username: "${name}"`)) return;
+    
     try {
-      const currentUser = users.find(u => u.id === id);
-      if(currentUser) {
-          await fetch(`${API_BASE_URL}/api/users/${id}`, { 
-              method: 'PUT',
-              headers: getAuthHeaders(),
-              body: JSON.stringify({ 
-                  name: currentUser.name, 
-                  email: currentUser.email, 
-                  role: currentUser.role,
-                  password: 'Test@123' 
-              })
-          });
-          alert("Password successfully reset to Test@123");
-          await fetchCoreData();
+      const res = await fetch(`${API_BASE_URL}/api/users/${id}/reset-password`, {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        alert(`✅ Success!\n\nPassword for ${name} has been reset.\nNew Password: ${data.newPasswordText}`);
+        await fetchCoreData();
+      } else {
+        alert(`❌ Failed to reset password: ${data.message || 'Unknown error'}`);
       }
     } catch (err) {
-      alert('Reset failed');
+      console.error("Error resetting password:", err);
+      alert("Network error while trying to reset password.");
     }
   };
 
@@ -493,15 +493,18 @@ function ManageUser({ role }) {
                                 >
                                   ✏️
                                 </button>
+                                
+                                {/* 🔑 Reset to Username Button */}
                                 <button 
-                                  title="Reset Password to Test@123"
-                                  onClick={() => handleReset(user.id)}
+                                  title="Reset Password to Username"
+                                  onClick={() => handleResetPassword(user.id, user.name)}
                                   style={{ ...iconBtnStyle, background: '#fffbeb', color: '#d97706' }}
                                   onMouseOver={(e) => { e.currentTarget.style.background = '#d97706'; e.currentTarget.style.color = 'white'; e.currentTarget.style.transform = 'translateY(-2px)' }}
                                   onMouseOut={(e) => { e.currentTarget.style.background = '#fffbeb'; e.currentTarget.style.color = '#d97706'; e.currentTarget.style.transform = 'translateY(0)' }}
                                 >
                                   🔑
                                 </button>
+
                                 <button 
                                   title="Delete User"
                                   onClick={() => handleDelete(user.id)}

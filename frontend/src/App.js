@@ -318,9 +318,6 @@ function App() {
 
   const [activeDates, setActiveDates] = useState([]);
 
-  // ==========================================
-  // 🟢 FIX: PROGRESSIVE LOADING ENGINE
-  // ==========================================
   useEffect(() => {
     if (!user) return;
     
@@ -330,7 +327,6 @@ function App() {
     const token = localStorage.getItem('eatsync_token');
     const authHeaders = { 'Authorization': `Bearer ${token}` };
 
-    // 1. PRIORITY FAST FETCH: Load lightweight master data independently (Non-blocking)
     fetch(`${API_BASE_URL}/api/users`, { signal, headers: authHeaders })
         .then(res => res.json())
         .then(data => { if (isMounted) setUsers(Array.isArray(data) ? data : []); })
@@ -346,9 +342,8 @@ function App() {
         .then(data => { if (isMounted) setActiveDates(Array.isArray(data) ? data : []); })
         .catch(err => { if(err.name !== 'AbortError') console.error("Dates fetch error:", err)});
 
-    // 2. HEAVY DATA LAST: Fetch specific date/dashboard data
-    const fetchDashboard = async (retryCount = 0) => {
-        if (isMounted) setLoading(true); // Triggers loading overlay for the main content area ONLY
+    const fetchDashboard = async (silent = false) => {
+        if (isMounted && !silent) setLoading(true); 
         try {
             const url = selectedDate ? `/api/dashboard?date=${selectedDate}` : `/api/dashboard`;
             const res = await fetch(`${API_BASE_URL}${url}`, { signal, headers: authHeaders });
@@ -357,26 +352,29 @@ function App() {
             const data = await res.json();
             if (isMounted) {
                 setCanteensData(data.canteens || []);
-                setLoading(false);
+                if (!silent) setLoading(false);
             }
         } catch (err) {
             if (err.name !== 'AbortError') {
-                if (retryCount < 5) {
-                    console.warn(`Dashboard fetch issue. Retrying... (${retryCount + 1}/5)`);
-                    setTimeout(() => { if (isMounted) fetchDashboard(retryCount + 1); }, 3000);
-                } else {
-                    console.error("Dashboard failed:", err);
-                    if (isMounted) setLoading(false);
-                }
+                console.error("Dashboard failed:", err);
+                if (isMounted && !silent) setLoading(false);
             }
         }
     };
 
-    fetchDashboard();
+    fetchDashboard(false);
+
+    let pollingInterval;
+    if (!selectedDate) {
+        pollingInterval = setInterval(() => {
+            fetchDashboard(true);
+        }, 5000);
+    }
 
     return () => {
       isMounted = false;
       abortController.abort();
+      if (pollingInterval) clearInterval(pollingInterval);
     };
   }, [selectedDate, user]);
 
@@ -387,7 +385,7 @@ function App() {
       }
 
       const socket = io(API_BASE_URL, {
-          transports: ['websocket', 'polling']
+          transports: ['polling', 'websocket']
       });
 
       socket.on('connect', () => {
@@ -440,15 +438,15 @@ function App() {
   }, [visibleCanteens, itemsMaster]);
 
   const globalStats = useMemo(() => {
-    let totalExpected = 0; let currentlyInside = 0; let completedLunch = 0; let remainingToday = 0; let maxCapacity = 0;
+    let totalExpected = 0; let currentlyInside = 0; let completedLunch = 0; let nextBatchCount = 0; let maxCapacity = 0;
     visibleCanteens.forEach(c => {
       totalExpected += c.stats?.totalExpected || 0;
       currentlyInside += c.stats?.currentlyInside || 0;
       completedLunch += c.stats?.completedLunch || 0;
-      remainingToday += c.stats?.remainingToday || Math.max(0, (c.stats?.totalExpected || 0) - ((c.stats?.currentlyInside || 0) + (c.stats?.completedLunch || 0)));
+      nextBatchCount += c.stats?.nextBatchCount || 0;
       maxCapacity += c.stats?.maxCapacity || 0;
     });
-    return { totalExpected, currentlyInside, completedLunch, remainingToday, maxCapacity };
+    return { totalExpected, currentlyInside, completedLunch, nextBatchCount, maxCapacity };
   }, [visibleCanteens]);
 
   const globalData = { stats: globalStats };
@@ -461,7 +459,8 @@ function App() {
         <Sidebar user={user} isOpen={isSidebarOpen} />
 
         <div className="global-main-85">
-          <nav className="top-navbar" style={{ minHeight: '125px', height: 'auto', padding: '15px 40px', gap: '15px', background: 'rgba(255, 255, 255, 0.9)', backdropFilter: 'blur(30px)' }}>
+          {/* 🟢 ULTRAVIEWER FIX: Removed backdropFilter, added solid white background, flat composite layer */}
+          <nav className="top-navbar" style={{ minHeight: '125px', height: 'auto', padding: '15px 40px', gap: '15px', background: '#ffffff', borderBottom: '1px solid #e2e8f0', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
             <div className="navbar-left" style={{ flexShrink: 0, flex: 'none' }}>
               <button
                 className={`sidebar-toggle-btn ${!isSidebarOpen ? "active" : ""}`}
@@ -512,7 +511,6 @@ function App() {
             {loading && <GodLevelLoader />}
             <div className="routes-container" style={{ height: "100%", opacity: loading ? 0 : 1, transition: 'opacity 0.5s ease' }}>
               <Routes>
-                {/* 🟢 FIX: Passed itemsMaster down to Home so it doesn't need to guess missing items */}
                 <Route path="/" element={<Home visibleCanteens={visibleCanteens} itemsMaster={itemsMaster} globalData={globalData} role={role} selectedDate={selectedDate} setSelectedDate={setSelectedDate} activeDates={activeDates} />} />
                 
                 <Route path="/reports" element={role === "admin" ? <Reports role={role} /> : <Navigate to="/" />} />

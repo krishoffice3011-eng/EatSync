@@ -12,5 +12,7 @@
   ],
   "overtimeLimit": 100,
   "tickerSpeed": 60,
+  "alertTickerSpeed": 100,
+  "tickerDirection": "rtl",
   "tickerColor": "#38bdf8"
 }

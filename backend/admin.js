@@ -2,7 +2,7 @@
 const express = require("express");
 const fs = require("fs").promises;
 const path = require("path");
-const bcrypt = require("bcrypt"); // 🔒 ADDED securely hashes passwords
+const bcrypt = require("bcrypt"); // 🔒 securely hashes passwords
 
 // 🔒 Added auth parameters injected from server.js
 module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshCanteenStats, sql, authenticateJWT, JWT_SECRET, jwt) {
@@ -21,6 +21,8 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
         ],
         overtimeLimit: 30,
         tickerSpeed: 60,
+        alertTickerSpeed: 50,   // 🆕 Added Alert Ticker Speed
+        tickerDirection: "rtl", // 🆕 Added Ticker Direction
         tickerColor: "#38bdf8"
     };
 
@@ -39,12 +41,15 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
     });
 
     router.post("/api/ticker-settings", authenticateJWT, async (req, res) => {
-        const { tickers, overtimeLimit, tickerSpeed, tickerColor } = req.body;
+        // 🆕 Destructure the new properties
+        const { tickers, overtimeLimit, tickerSpeed, alertTickerSpeed, tickerDirection, tickerColor } = req.body;
         try {
             const newSettings = {
                 tickers: Array.isArray(tickers) ? tickers : [],
                 overtimeLimit: parseInt(overtimeLimit) || 30,
                 tickerSpeed: parseInt(tickerSpeed) || 60,
+                alertTickerSpeed: parseInt(alertTickerSpeed) || 50, // 🆕 Save Alert Speed
+                tickerDirection: tickerDirection || "rtl",          // 🆕 Save Direction
                 tickerColor: tickerColor || "#38bdf8"
             };
 
@@ -175,7 +180,6 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
         try {
             const pool = await poolConnect;
             
-            // 🔒 FIX: Hash the default password with bcrypt
             const defaultPasswordHash = bcrypt.hashSync("Test@123", 10);
             
             await pool.request()
@@ -206,8 +210,6 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
                 .input("role", sql.NVarChar, role)
                 .input("canteenStr", sql.NVarChar, canteenStr);
 
-            // 🐛 FIX: Dynamically construct query to explicitly allow overwriting with NULL/Empty 
-            // when admin clears all canteen assignments.
             let queryOptions = `Name=ISNULL(@name, Name), Email=ISNULL(@email, Email), Role=ISNULL(@role, Role)`;
             
             if (req.body.hasOwnProperty('canteenIds')) {
@@ -239,12 +241,41 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
         }
     });
 
+    // 🚨 ADMIN ACTION: Reset Password to User's Name
+    router.put("/api/users/:id/reset-password", authenticateJWT, async (req, res) => {
+        const { id } = req.params;
+        try {
+            if (req.user.role !== 'admin') return res.status(403).json({ error: "Admin only" });
+
+            const pool = await poolConnect;
+            
+            const userResult = await pool.request()
+                .input("id", sql.Int, id)
+                .query("SELECT Name FROM dbo.UserMaster WHERE UserID = @id");
+
+            if (userResult.recordset.length === 0) {
+                return res.status(404).json({ success: false, message: "User not found" });
+            }
+
+            const userName = userResult.recordset[0].Name;
+            const hashedNewPassword = bcrypt.hashSync(userName, 10);
+            
+            await pool.request()
+                .input("id", sql.Int, id)
+                .input("newPass", sql.NVarChar, hashedNewPassword)
+                .query("UPDATE dbo.UserMaster SET Password = @newPass WHERE UserID = @id");
+
+            res.json({ success: true, newPasswordText: userName, message: "Password reset to username successfully." });
+        } catch (err) { 
+            handleSQLError(err, res, "PUT /api/users/:id/reset-password"); 
+        }
+    });
+
     // ==========================================
     // 🍔 ITEM MASTER CRUD OPERATIONS
     // ==========================================
 
     router.post("/api/items", authenticateJWT, async (req, res) => {
-        // FIX: Destructure shiftGroup instead of foodGroup
         const { itemName, fromTime, toTime, itemGroup, shiftGroup, empRate, employeerRate } = req.body;
         try {
             const pool = await poolConnect;
@@ -270,7 +301,6 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
     });
 
     router.put("/api/items/:id", authenticateJWT, async (req, res) => {
-        // FIX: Destructure shiftGroup instead of foodGroup
         const { itemName, fromTime, toTime, itemGroup, shiftGroup, empRate, employeerRate } = req.body;
         try {
             const pool = await poolConnect;
@@ -403,6 +433,43 @@ module.exports = function(poolConnect, handleSQLError, invalidateCache, refreshC
             }
         } catch (err) {
             handleSQLError(err, res, "POST /api/login");
+        }
+    });
+
+    // ==========================================
+    // 🔓 CHANGE PASSWORD (USER INITIATED)
+    // ==========================================
+    
+    router.post("/api/change-password", async (req, res) => {
+        const { email, currentPassword, newPassword } = req.body;
+        try {
+            const pool = await poolConnect;
+            
+            const userResult = await pool.request()
+                .input("email", sql.NVarChar, email)
+                .query("SELECT UserID, Password FROM dbo.UserMaster WHERE Email = @email");
+
+            if (userResult.recordset.length === 0) {
+                return res.status(404).json({ success: false, message: "User not found." });
+            }
+
+            const user = userResult.recordset[0];
+            const isValid = bcrypt.compareSync(currentPassword, user.Password);
+
+            if (!isValid) {
+                return res.status(401).json({ success: false, message: "Incorrect current password." });
+            }
+
+            const hashedNewPassword = bcrypt.hashSync(newPassword, 10);
+            
+            await pool.request()
+                .input("id", sql.Int, user.UserID)
+                .input("newPass", sql.NVarChar, hashedNewPassword)
+                .query("UPDATE dbo.UserMaster SET Password = @newPass WHERE UserID = @id");
+
+            res.json({ success: true, message: "Password updated successfully." });
+        } catch (err) {
+            handleSQLError(err, res, "POST /api/change-password");
         }
     });
 
