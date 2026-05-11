@@ -672,7 +672,7 @@
 }
 
 .rpt-text-success {
-    color: var(--success);
+    color: var(--success, #059669);
     font-size: 1.1rem;
 }
 
@@ -682,6 +682,10 @@
 
 .rpt-text-indigo {
     color: #4f46e5;
+}
+
+.rpt-text-danger {
+    color: var(--danger, #dc2626);
 }
 
 /* Overtime / Deducted Row Warning */
